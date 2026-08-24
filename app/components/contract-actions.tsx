@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, useState } from "react";
-import { milaWrites, waitForMilaTx } from "../lib/genlayer";
+import { extractReturnedString, milaWrites, waitForMilaTx } from "../lib/genlayer";
 import { useMilaWallet } from "./wallet-client";
 
 type TxState = {
@@ -46,8 +46,9 @@ export function CreateRoundForm() {
         BigInt(String(data.get("mutation_cap") || "240")),
       ]);
       setTx({ label: "Consensus pending", hash });
-      await waitForMilaTx(hash);
-      setTx({ label: "Accepted", hash });
+      const receipt = await waitForMilaTx(hash);
+      const roundId = extractReturnedString(receipt);
+      setTx({ label: roundId ? `Accepted / round ${roundId}` : "Accepted", hash });
     } catch (error) {
       setTx({ label: "Failed", error: error instanceof Error ? error.message : "Transaction failed." });
     }
@@ -81,8 +82,10 @@ export function SubmitSeedForm({ roundId }: { roundId: string }) {
     try {
       const hash = await milaWrites.submitSeed(active.address, active.provider, roundId, String(data.get("title") || ""), String(data.get("content") || ""));
       setTx({ label: "Consensus pending", hash });
-      await waitForMilaTx(hash);
-      setTx({ label: "Accepted", hash });
+      const receipt = await waitForMilaTx(hash);
+      const returned = extractReturnedString(receipt);
+      if (returned) setEntryId(returned);
+      setTx({ label: returned ? `Accepted / entry ${returned}` : "Accepted", hash });
     } catch (error) {
       setTx({ label: "Failed", error: error instanceof Error ? error.message : "Transaction failed." });
     }
@@ -92,7 +95,7 @@ export function SubmitSeedForm({ roundId }: { roundId: string }) {
     <form onSubmit={submit}>
       <label>Seed title<input name="title" required placeholder="A compact culture hook" /></label>
       <label>Seed text<textarea name="content" required placeholder="The premise, caption, or setup" /></label>
-      <label>Entry id for judgment<input value={entryId} onChange={(event) => setEntryId(event.target.value)} placeholder="Paste returned entry id after reading receipt" /></label>
+      <label>Entry id for judgment<input value={entryId} onChange={(event) => setEntryId(event.target.value)} placeholder="Filled automatically after accepted receipt" /></label>
       <button className="primary-button" type="submit">Submit seed</button>
       <JudgeEntryButton entryId={entryId} />
       <TxPanel state={tx} />
@@ -113,8 +116,10 @@ export function SubmitMutationForm({ parentId }: { parentId: string }) {
     try {
       const hash = await milaWrites.submitMutation(active.address, active.provider, parentId, String(data.get("title") || ""), String(data.get("content") || ""));
       setTx({ label: "Consensus pending", hash });
-      await waitForMilaTx(hash);
-      setTx({ label: "Accepted", hash });
+      const receipt = await waitForMilaTx(hash);
+      const returned = extractReturnedString(receipt);
+      if (returned) setEntryId(returned);
+      setTx({ label: returned ? `Accepted / entry ${returned}` : "Accepted", hash });
     } catch (error) {
       setTx({ label: "Failed", error: error instanceof Error ? error.message : "Transaction failed." });
     }
@@ -124,7 +129,7 @@ export function SubmitMutationForm({ parentId }: { parentId: string }) {
     <form onSubmit={submit}>
       <label>Mutation title<input name="title" required placeholder="The next beat" /></label>
       <label>Mutation text<textarea name="content" required placeholder="The twist, callback, or remix" /></label>
-      <label>Entry id for judgment<input value={entryId} onChange={(event) => setEntryId(event.target.value)} placeholder="Paste returned entry id after reading receipt" /></label>
+      <label>Entry id for judgment<input value={entryId} onChange={(event) => setEntryId(event.target.value)} placeholder="Filled automatically after accepted receipt" /></label>
       <button className="primary-button" type="submit">Submit mutation</button>
       <JudgeEntryButton entryId={entryId} />
       <TxPanel state={tx} />

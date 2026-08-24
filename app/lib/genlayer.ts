@@ -31,6 +31,38 @@ export async function waitForMilaTx(hash: TxHash, status = TransactionStatus.ACC
   return receipt;
 }
 
+export function extractReturnedString(value: unknown): string {
+  const seen = new Set<unknown>();
+  function walk(input: unknown): string {
+    if (!input || seen.has(input)) return "";
+    if (typeof input === "string") {
+      if (/^(round|entry|badge)?[a-f0-9]{16,64}$/i.test(input) || /^[a-f0-9]{24}$/i.test(input)) return input;
+      return "";
+    }
+    if (Array.isArray(input)) {
+      for (const item of input) {
+        const found = walk(item);
+        if (found) return found;
+      }
+      return "";
+    }
+    if (typeof input === "object") {
+      seen.add(input);
+      const record = input as Record<string, unknown>;
+      for (const key of ["returnValue", "return_value", "returnData", "return_data", "result", "stdout", "calldata", "data"]) {
+        const found = walk(record[key]);
+        if (found) return found;
+      }
+      for (const item of Object.values(record)) {
+        const found = walk(item);
+        if (found) return found;
+      }
+    }
+    return "";
+  }
+  return walk(value);
+}
+
 export async function writeMila(account: `0x${string}`, provider: Provider, functionName: string, args: MilaCalldata[] = []) {
   const client = createMilaWriteClient(account, provider);
   await client.connect("studionet");

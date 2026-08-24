@@ -36,8 +36,27 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      - name: Require StudioNet secrets
+        shell: bash
+        run: |
+          test -n "${GENLAYER_RPC_URL}"
+          test -n "${GENLAYER_PRIVATE_KEY}"
+          test -n "${GENLAYER_ACCOUNT}"
+          test -n "${NEXT_PUBLIC_MILA_CONTRACT_ADDRESS}"
+        env:
+          GENLAYER_RPC_URL: ${{ secrets.GENLAYER_RPC_URL }}
+          GENLAYER_PRIVATE_KEY: ${{ secrets.GENLAYER_PRIVATE_KEY }}
+          GENLAYER_ACCOUNT: ${{ secrets.GENLAYER_ACCOUNT }}
+          NEXT_PUBLIC_MILA_CONTRACT_ADDRESS: ${{ secrets.NEXT_PUBLIC_MILA_CONTRACT_ADDRESS }}
       - run: npm run verify:deployment
+        env:
+          GENLAYER_RPC_URL: ${{ secrets.GENLAYER_RPC_URL }}
+          GENLAYER_PRIVATE_KEY: ${{ secrets.GENLAYER_PRIVATE_KEY }}
+          GENLAYER_ACCOUNT: ${{ secrets.GENLAYER_ACCOUNT }}
+          NEXT_PUBLIC_MILA_CONTRACT_ADDRESS: ${{ secrets.NEXT_PUBLIC_MILA_CONTRACT_ADDRESS }}
       - run: npm run integration:studionet
         env:
           GENLAYER_RPC_URL: ${{ secrets.GENLAYER_RPC_URL }}
+          GENLAYER_PRIVATE_KEY: ${{ secrets.GENLAYER_PRIVATE_KEY }}
+          GENLAYER_ACCOUNT: ${{ secrets.GENLAYER_ACCOUNT }}
           NEXT_PUBLIC_MILA_CONTRACT_ADDRESS: ${{ secrets.NEXT_PUBLIC_MILA_CONTRACT_ADDRESS }}

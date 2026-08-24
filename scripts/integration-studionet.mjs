@@ -4,10 +4,20 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
-const rpc = process.env.GENLAYER_RPC_URL || "https://studio.genlayer.com/api";
 const deploymentPath = resolve(root, "deployments", "studionet.json");
 const proofPath = resolve(root, "LIVE_PROOF.md");
-const configuredAddress = process.env.NEXT_PUBLIC_MILA_CONTRACT_ADDRESS || readAddress();
+const rpc = requiredEnv("GENLAYER_RPC_URL");
+const address = process.env.NEXT_PUBLIC_MILA_CONTRACT_ADDRESS || readAddress();
+const account = requiredEnv("GENLAYER_ACCOUNT");
+
+requiredEnv("GENLAYER_PRIVATE_KEY");
+if (!address) throw new Error("NEXT_PUBLIC_MILA_CONTRACT_ADDRESS or deployments/studionet.json contractAddress is required.");
+
+function requiredEnv(name) {
+  const value = process.env[name];
+  if (!value) throw new Error(`${name} is required for StudioNet integration; refusing to skip live proof.`);
+  return value;
+}
 
 function readAddress() {
   if (!existsSync(deploymentPath)) return "";
@@ -23,73 +33,172 @@ function run(args) {
   });
 }
 
-function hash(output) {
+function txHash(output) {
   const match = output.match(/0x[a-fA-F0-9]{64}/);
-  if (!match) throw new Error(`No tx hash found:\n${output}`);
+  if (!match) throw new Error(`No transaction hash found:\n${output}`);
   return match[0];
 }
 
-function wait(tx) {
-  const receipt = run(["receipt", tx, "--status", "FINALIZED", "--rpc", rpc, "--retries", "120", "--interval", "5000"]);
+function extractReturnedString(value) {
+  const text = typeof value === "string" ? value : JSON.stringify(value);
+  const jsonCandidates = [...text.matchAll(/\{[\s\S]*\}|\[[\s\S]*\]/g)].map((match) => match[0]);
+  for (const candidate of jsonCandidates) {
+    try {
+      const found = walk(JSON.parse(candidate));
+      if (found) return found;
+    } catch {
+      // CLI output is often mixed human text + JSON; ignore non-JSON spans.
+    }
+  }
+  const explicit = text.match(/(?:return(?:ed)?(?:Value|_value| data)?|result|id)["':=\s]+((?:round|entry|badge)?[a-f0-9]{16,64}|[a-f0-9]{24})/i);
+  if (explicit) return explicit[1];
+  const fallback = text.match(/\b(?:round|entry|badge)?[a-f0-9]{24,64}\b/i);
+  return fallback?.[0] || "";
+}
+
+function walk(input, seen = new Set()) {
+  if (!input || seen.has(input)) return "";
+  if (typeof input === "string") return extractReturnedString(input);
+  if (Array.isArray(input)) {
+    for (const item of input) {
+      const found = walk(item, seen);
+      if (found) return found;
+    }
+    return "";
+  }
+  if (typeof input === "object") {
+    seen.add(input);
+    for (const key of ["returnValue", "return_value", "returnData", "return_data", "result", "stdout", "calldata", "data", "id"]) {
+      const found = walk(input[key], seen);
+      if (found) return found;
+    }
+    for (const item of Object.values(input)) {
+      const found = walk(item, seen);
+      if (found) return found;
+    }
+  }
+  return "";
+}
+
+function wait(hash) {
+  const receipt = run(["receipt", hash, "--status", "FINALIZED", "--rpc", rpc, "--retries", "120", "--interval", "5000"]);
   if (!/FINALIZED|ACCEPTED|FINISHED_WITH_RETURN|success/i.test(receipt)) {
     throw new Error(`Transaction did not finalize successfully:\n${receipt}`);
   }
   return receipt;
 }
 
-function write(address, method, args) {
-  const tx = hash(run(["write", address, method, "--rpc", rpc, "--args", ...args.map(String)]));
-  wait(tx);
-  return tx;
+function write(method, args) {
+  const output = run(["write", address, method, "--rpc", rpc, "--args", ...args.map(String)]);
+  const hash = txHash(output);
+  const receipt = wait(hash);
+  return { hash, receipt, returned: extractReturnedString(`${output}\n${receipt}`) };
 }
 
-function call(address, method, args = []) {
+function call(method, args = []) {
   return run(["call", address, method, "--rpc", rpc, "--args", ...args.map(String)]);
 }
 
-if (!configuredAddress) {
-  console.log("StudioNet integration skipped: NEXT_PUBLIC_MILA_CONTRACT_ADDRESS or deployments/studionet.json is required.");
-  process.exit(0);
-}
-if (!process.env.GENLAYER_PRIVATE_KEY && !process.env.GENLAYER_ACCOUNT) {
-  console.log("StudioNet integration skipped: GENLAYER_PRIVATE_KEY or configured GenLayer account is required.");
-  process.exit(0);
+function requireReturn(step, result) {
+  if (!result.returned) {
+    throw new Error(`${step} did not expose a returned id in CLI output/receipt. Output:\n${result.receipt}`);
+  }
+  return result.returned;
 }
 
 const nonce = Date.now();
 const opens = Math.floor(Date.now() / 1000) - 60;
 const closes = opens + 86400;
 
-const createTx = write(configuredAddress, "create_round", [`Office lore ${nonce}`, `The group chat went quiet ${nonce}.`, opens, closes, 4, 140, 240]);
-const summaryAfterRound = call(configuredAddress, "get_summary");
-const roundMatch = summaryAfterRound.match(/round_count['":\s]+(\d+)/i);
-const roundId = process.env.MILA_INTEGRATION_ROUND_ID || "READ_FROM_CREATE_TX_RETURN";
-const openTx = process.env.MILA_INTEGRATION_ROUND_ID ? write(configuredAddress, "open_round", [process.env.MILA_INTEGRATION_ROUND_ID]) : "requires round id from deploy trace";
-
-const seedTx = process.env.MILA_INTEGRATION_ROUND_ID
-  ? write(configuredAddress, "submit_seed", [process.env.MILA_INTEGRATION_ROUND_ID, `Seed ${nonce}`, `A pause is still a plot twist ${nonce}.`])
-  : "skipped without round id extraction";
+const createRound = write("create_round", [`Office lore ${nonce}`, `The group chat went quiet ${nonce}.`, opens, closes, 4, 140, 240]);
+const roundId = requireReturn("create_round", createRound);
+const openRound = write("open_round", [roundId]);
+const seed = write("submit_seed", [roundId, `Seed ${nonce}`, `A pause is still a plot twist ${nonce}.`]);
+const seedId = requireReturn("submit_seed", seed);
+const seedJudgment = write("judge_entry", [seedId]);
+const seedEntry = call("get_entry", [seedId]);
+const seedDecision = call("get_judgment", [seedId]);
+const mutation = write("submit_mutation", [seedId, `Mutation ${nonce}`, `The typing dots became a standing meeting ${nonce}.`]);
+const mutationId = requireReturn("submit_mutation", mutation);
+const mutationJudgment = write("judge_entry", [mutationId]);
+const mutationEntry = call("get_entry", [mutationId]);
+const mutationDecision = call("get_judgment", [mutationId]);
+const lineage = call("get_lineage", [mutationId]);
+const feed = call("get_round_feed", [roundId, 0, 10]);
+const spark = call("get_creator_spark", [account]);
+const history = call("get_creator_history", [account, 0, 10]);
+const summary = call("get_summary");
 
 const proof = `# Mila StudioNet Live Proof
 
 NETWORK: studionet
-CONTRACT: ${configuredAddress}
+CONTRACT: ${address}
 
-ROUND CREATE TX: ${createTx}
+ROUND CREATE TX: ${createRound.hash}
 ROUND ID: ${roundId}
-ROUND OPEN TX: ${openTx}
-SEED SUBMIT TX: ${seedTx}
+ROUND OPEN TX: ${openRound.hash}
+SEED SUBMIT TX: ${seed.hash}
+SEED ID: ${seedId}
+SEED JUDGMENT TX: ${seedJudgment.hash}
+MUTATION SUBMIT TX: ${mutation.hash}
+MUTATION ID: ${mutationId}
+MUTATION JUDGMENT TX: ${mutationJudgment.hash}
 
-Summary after create:
+## Summary
 
 \`\`\`text
-${summaryAfterRound}
+${summary}
 \`\`\`
 
-Note: complete seed/mutation judgment trace requires robust return-data extraction for round and entry ids from the current GenLayer CLI output. This script fails on transaction finalization errors and records all available transaction hashes.
+## Seed Entry
+
+\`\`\`text
+${seedEntry}
+\`\`\`
+
+## Seed Decision
+
+\`\`\`text
+${seedDecision}
+\`\`\`
+
+## Mutation Entry
+
+\`\`\`text
+${mutationEntry}
+\`\`\`
+
+## Mutation Decision
+
+\`\`\`text
+${mutationDecision}
+\`\`\`
+
+## Mutation Lineage
+
+\`\`\`text
+${lineage}
+\`\`\`
+
+## Round Feed
+
+\`\`\`text
+${feed}
+\`\`\`
+
+## Creator SPARK
+
+\`\`\`text
+${spark}
+\`\`\`
+
+## Creator History
+
+\`\`\`text
+${history}
+\`\`\`
 `;
 
 mkdirSync(dirname(proofPath), { recursive: true });
 writeFileSync(proofPath, proof);
 console.log(proof);
-console.log(`round_count_observed=${roundMatch?.[1] || "unknown"}`);
