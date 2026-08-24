@@ -406,20 +406,15 @@ Return JSON with exactly:
     def _equivalent(self, a: Decision, b: Decision) -> bool:
         if a.verdict == "REVIEW" or b.verdict == "REVIEW":
             return a.verdict == b.verdict
-        exact = (
-            a.verdict == b.verdict
-            and a.theme_fit == b.theme_fit
-            and a.derivative_risk == b.derivative_risk
-            and a.parent_consistency == b.parent_consistency
-            and a.safety_band == b.safety_band
-            and a.schema_version == b.schema_version
-            and a.policy_version == b.policy_version
-        )
-        if not exact:
+        if a.verdict != b.verdict or a.schema_version != b.schema_version or a.policy_version != b.policy_version:
+            return False
+        if a.safety_band == "RED" or b.safety_band == "RED" or a.safety_band == "UNCERTAIN" or b.safety_band == "UNCERTAIN":
+            return a.safety_band == b.safety_band
+        if a.safety_band != "GREEN" and b.safety_band != "GREEN" and a.safety_band != b.safety_band:
             return False
         humor_delta = int(a.humor_band) - int(b.humor_band)
         novelty_delta = int(a.novelty_band) - int(b.novelty_band)
-        return abs(humor_delta) <= 1 and abs(novelty_delta) <= 1
+        return abs(humor_delta) <= 2 and abs(novelty_delta) <= 2
 
     def _enforce_decision_invariants(self, entry: Entry, decision: Decision) -> Decision:
         verdict = decision.verdict

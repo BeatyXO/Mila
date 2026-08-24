@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const deploymentPath = resolve(root, "deployments", "studionet.json");
+const genlayerBin = resolveGenlayerBin();
 const rpc = process.env.GENLAYER_RPC_URL || "https://studio.genlayer.com/api";
 const deployment = readDeployment();
 const address = process.env.NEXT_PUBLIC_MILA_CONTRACT_ADDRESS || deployment.contractAddress || "";
@@ -15,12 +16,23 @@ function readDeployment() {
 }
 
 function run(args) {
-  return execFileSync("genlayer", args, {
+  const command = process.platform === "win32" ? [genlayerBin, ...args].map(quoteArg).join(" ") : genlayerBin;
+  return execFileSync(command, process.platform === "win32" ? [] : args, {
     cwd: root,
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],
     env: process.env,
+    shell: process.platform === "win32",
   });
+}
+
+function quoteArg(value) {
+  return `"${String(value).replaceAll('"', '\\"')}"`;
+}
+
+function resolveGenlayerBin() {
+  if (process.platform !== "win32") return "genlayer";
+  return process.env.APPDATA ? resolve(process.env.APPDATA, "npm", "genlayer.cmd") : "genlayer.cmd";
 }
 
 function assertIncludes(label, output, expected) {

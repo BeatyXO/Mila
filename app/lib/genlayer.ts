@@ -36,7 +36,8 @@ export function extractReturnedString(value: unknown): string {
   function walk(input: unknown): string {
     if (!input || seen.has(input)) return "";
     if (typeof input === "string") {
-      if (/^(round|entry|badge)?[a-f0-9]{16,64}$/i.test(input) || /^[a-f0-9]{24}$/i.test(input)) return input;
+      const normalized = input.trim().replace(/^["']|["']$/g, "");
+      if (/^(round|entry|badge)?[a-f0-9]{16,64}$/i.test(normalized) || /^[a-f0-9]{24}$/i.test(normalized)) return normalized;
       return "";
     }
     if (Array.isArray(input)) {

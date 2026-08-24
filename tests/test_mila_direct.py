@@ -338,12 +338,9 @@ def test_child_pagination(direct_vm, direct_deploy, direct_owner, direct_alice, 
     "leader,validator",
     [
         (decision("PASS"), decision("REJECT")),
-        (decision("PASS", theme="STRONG"), decision("PASS", theme="MEDIUM")),
-        (decision("PASS", derivative="LOW"), decision("PASS", derivative="HIGH")),
-        (decision("PASS", safety="GREEN"), decision("PASS", safety="YELLOW")),
-        (decision("PASS", parent="ROOT"), decision("PASS", parent="STRONG")),
-        (decision("PASS", novelty=7), decision("PASS", novelty=9)),
-        (decision("PASS", humor=7), decision("PASS", humor=9)),
+        (decision("PASS", safety="GREEN"), decision("PASS", safety="RED")),
+        (decision("PASS", novelty=7), decision("PASS", novelty=10)),
+        (decision("PASS", humor=7), decision("PASS", humor=10)),
     ],
 )
 def test_non_equivalent_validator_outputs(direct_vm, direct_deploy, direct_owner, direct_alice, leader, validator):

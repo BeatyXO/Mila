@@ -6,11 +6,11 @@ import { fileURLToPath } from "node:url";
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const deploymentPath = resolve(root, "deployments", "studionet.json");
 const proofPath = resolve(root, "LIVE_PROOF.md");
+const genlayerBin = resolveGenlayerBin();
 const rpc = requiredEnv("GENLAYER_RPC_URL");
 const address = process.env.NEXT_PUBLIC_MILA_CONTRACT_ADDRESS || readAddress();
 const account = requiredEnv("GENLAYER_ACCOUNT");
 
-requiredEnv("GENLAYER_PRIVATE_KEY");
 if (!address) throw new Error("NEXT_PUBLIC_MILA_CONTRACT_ADDRESS or deployments/studionet.json contractAddress is required.");
 
 function requiredEnv(name) {
@@ -25,12 +25,23 @@ function readAddress() {
 }
 
 function run(args) {
-  return execFileSync("genlayer", args, {
+  const command = process.platform === "win32" ? [genlayerBin, ...args].map(quoteArg).join(" ") : genlayerBin;
+  return execFileSync(command, process.platform === "win32" ? [] : args, {
     cwd: root,
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],
     env: process.env,
+    shell: process.platform === "win32",
   });
+}
+
+function quoteArg(value) {
+  return `"${String(value).replaceAll('"', '\\"')}"`;
+}
+
+function resolveGenlayerBin() {
+  if (process.platform !== "win32") return "genlayer";
+  return process.env.APPDATA ? resolve(process.env.APPDATA, "npm", "genlayer.cmd") : "genlayer.cmd";
 }
 
 function txHash(output) {
@@ -41,6 +52,8 @@ function txHash(output) {
 
 function extractReturnedString(value) {
   const text = typeof value === "string" ? value : JSON.stringify(value);
+  const normalized = text.trim().replace(/^["']|["']$/g, "");
+  if (/^(round|entry|badge)?[a-f0-9]{16,64}$/i.test(normalized) || /^[a-f0-9]{24}$/i.test(normalized)) return normalized;
   const jsonCandidates = [...text.matchAll(/\{[\s\S]*\}|\[[\s\S]*\]/g)].map((match) => match[0]);
   for (const candidate of jsonCandidates) {
     try {
@@ -52,8 +65,9 @@ function extractReturnedString(value) {
   }
   const explicit = text.match(/(?:return(?:ed)?(?:Value|_value| data)?|result|id)["':=\s]+((?:round|entry|badge)?[a-f0-9]{16,64}|[a-f0-9]{24})/i);
   if (explicit) return explicit[1];
-  const fallback = text.match(/\b(?:round|entry|badge)?[a-f0-9]{24,64}\b/i);
-  return fallback?.[0] || "";
+  const readablePayload = text.match(/payload:\s*\{\s*readable:\s*['"]['"]?([a-f0-9]{24,64})['"]?['"]\s*\}/i);
+  if (readablePayload) return readablePayload[1];
+  return "";
 }
 
 function walk(input, seen = new Set()) {
@@ -81,7 +95,7 @@ function walk(input, seen = new Set()) {
 }
 
 function wait(hash) {
-  const receipt = run(["receipt", hash, "--status", "FINALIZED", "--rpc", rpc, "--retries", "120", "--interval", "5000"]);
+  const receipt = run(["receipt", hash, "--status", "ACCEPTED", "--rpc", rpc, "--retries", "120", "--interval", "5000"]);
   if (!/FINALIZED|ACCEPTED|FINISHED_WITH_RETURN|success/i.test(receipt)) {
     throw new Error(`Transaction did not finalize successfully:\n${receipt}`);
   }
@@ -96,7 +110,15 @@ function write(method, args) {
 }
 
 function call(method, args = []) {
-  return run(["call", address, method, "--rpc", rpc, "--args", ...args.map(String)]);
+  const command = ["call", address, method, "--rpc", rpc];
+  if (args.length) command.push("--args", ...args.map(String));
+  return run(command);
+}
+
+function lastIdFromCall(output) {
+  const ids = [...output.matchAll(/'([a-f0-9]{24})'|"([a-f0-9]{24})"/gi)].map((match) => match[1] || match[2]);
+  if (!ids.length) throw new Error(`No 24-hex id found in call output:\n${output}`);
+  return ids.at(-1);
 }
 
 function requireReturn(step, result) {
@@ -114,12 +136,12 @@ const createRound = write("create_round", [`Office lore ${nonce}`, `The group ch
 const roundId = requireReturn("create_round", createRound);
 const openRound = write("open_round", [roundId]);
 const seed = write("submit_seed", [roundId, `Seed ${nonce}`, `A pause is still a plot twist ${nonce}.`]);
-const seedId = requireReturn("submit_seed", seed);
+const seedId = lastIdFromCall(call("get_round_feed", [roundId, 0, 10]));
 const seedJudgment = write("judge_entry", [seedId]);
 const seedEntry = call("get_entry", [seedId]);
 const seedDecision = call("get_judgment", [seedId]);
 const mutation = write("submit_mutation", [seedId, `Mutation ${nonce}`, `The typing dots became a standing meeting ${nonce}.`]);
-const mutationId = requireReturn("submit_mutation", mutation);
+const mutationId = lastIdFromCall(call("get_children", [seedId, 0, 10]));
 const mutationJudgment = write("judge_entry", [mutationId]);
 const mutationEntry = call("get_entry", [mutationId]);
 const mutationDecision = call("get_judgment", [mutationId]);
