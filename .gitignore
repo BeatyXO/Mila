@@ -1,0 +1,17 @@
+node_modules/
+.next/
+out/
+dist/
+build/
+
+.env
+.env*.local
+!.env.example
+
+*.log
+*.tsbuildinfo
+__pycache__/
+*.py[cod]
+
+.DS_Store
+Thumbs.db
