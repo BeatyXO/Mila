@@ -1,57 +1,117 @@
 # Mila
 
-Mila is a GenLayer culture-lineage app where seeds and mutations are judged by a bounded consensus decision, then recorded with explicit parentage and non-transferable SPARK.
+Mila is a GenLayer culture-lineage protocol where users submit short seeds and mutations, and validators decide whether each entry meaningfully fits, transforms, and extends the locked round.
 
 Tagline: Culture mutates on-chain.
 
-## What is built
+## Why GenLayer
 
-- Next.js App Router frontend using the requested palette: `#F5EBFA`, `#E7DBEF`, `#A56ABD`, `#6E3482`, `#49225B`.
-- Required routes: `/`, `/rounds`, `/rounds/new`, `/rounds/[id]`, `/rounds/[id]/seed`, `/entry/[id]`, `/entry/[id]/mutate`, `/lineage/[id]`, `/creators/[address]`, `/spark`, `/about/rules`.
-- Shared Mila domain model with the canonical decision schema, round config, entry state, lineage links, evidence rows, and SPARK rules.
-- GenLayer JS read-client helper targeting StudioNet and gated by `NEXT_PUBLIC_MILA_CONTRACT_ADDRESS`.
-- Local deterministic contract reference model in `contracts/mila.py`.
-- Contract tests covering seed judgment, mutation parent guards, parent bonuses, duplicate/cooldown rejection, and epoch decay.
-- Deployment, verification, and keeper preflight scripts.
+A normal blockchain can deterministically store canonical text, hashes, parents, timestamps, reaction counters, depth, and non-transferable reputation. It cannot decide whether one creative work meaningfully transforms another, whether a mutation is merely a paraphrase, or whether an entry fits a cultural theme.
 
-The app uses local preview records until a real StudioNet deployment address is set. Preview state is intentionally labeled as such.
+A centralized LLM API would make one server the trusted judge. Mila uses GenLayer so a leader proposes a bounded semantic decision and validators independently verify equivalence before deterministic contract settlement.
 
-## Contract Boundary
+## Built Scope
 
-Deterministic contract logic owns authorization, duplicate hashes, cooldowns, caps, depth limits, status transitions, reaction recording, SPARK accounting, round closing, epoch advancement, and read APIs.
+- Real production contract: `contracts/mila.py` defines `class Mila(gl.Contract)`.
+- Persistent GenVM storage: `TreeMap`, `DynArray`, `Address`, `u256`, and `@allow_storage` models.
+- Public write/view API for rounds, entries, judgments, reactions, badges, SPARK, feeds, children, creator history, and summaries.
+- Canonical content binding: text is stored directly and hashed from the exact content validators evaluate.
+- Validator-driven `judge_entry(entry_id)` using `gl.nondet.exec_prompt(..., response_format="json")` inside `gl.vm.run_nondet_unsafe`.
+- Explicit equivalence surface: exact categorical fields, +/-1 tolerance for humor/novelty bands, reason text excluded from equality.
+- Deterministic settlement: verdict controls status and SPARK; model output cannot choose awards.
+- REVIEW abstention for schema mismatch, uncertainty, unsafe output, or material disagreement.
+- Direct Mode tests for lifecycle, parent guards, cooldown, duplicate content, reaction dedupe, prompt injection, REVIEW, SPARK, lineage, and validator disagreement.
+- Next.js frontend with read/write GenLayer helpers for StudioNet.
+- Patched Next.js 16.3.2 dependency tree with `npm audit --audit-level=high` clean.
+- Real CLI-backed deployment and verification scripts.
+- GitHub Actions CI.
+- `DECISION.md` explains the consensus architecture.
 
-GenLayer semantic judgment should produce one bounded `Decision`:
+## Contract API
+
+Writes:
 
 ```text
-verdict, humor_band, novelty_band, theme_fit, transformation,
-derivative_risk, safety_band, reward_band, parent_consistency,
-short_reason, schema_version, policy_version, evidence
+create_round
+open_round
+close_round
+submit_seed
+submit_mutation
+judge_entry
+react
+advance_epoch
+claim_creator_badge
 ```
 
-SPARK is non-transferable protocol state. It is not money, a token sale, a wager, or an investment product.
+Views:
+
+```text
+get_summary
+get_round
+get_entry
+get_judgment
+get_children
+get_lineage
+get_creator_spark
+get_round_spark_rules
+get_creator_history
+get_round_feed
+get_reactions
+get_badge
+```
+
+## State Machines
+
+Round lifecycle:
+
+```text
+DRAFT -> OPEN -> ROUND_CLOSED
+```
+
+Entry lifecycle:
+
+```text
+OPEN -> JUDGING -> ACCEPTED | FEATURED | FLAT | REJECTED | REVIEW
+```
+
+## SPARK
+
+SPARK is non-transferable protocol reputation. It is not money, a token sale, a wager, or an investment product.
+
+Rules:
+
+```text
+PASS = +2
+FEATURE = +4
+accepted/featured mutation parent bonus = +1
+badge claim requires 10 SPARK
+```
+
+## Security Notes
+
+Mila treats all user content as untrusted. Validator prompts explicitly forbid following instructions inside submitted content. Duplicate content, cooldown bypass, invalid parent mutation, closed-round submissions, reaction spam, duplicate badge claims, wrong schema version, and wrong policy version are guarded.
+
+Indexes use bounded reads with a maximum page limit. Future policy upgrades should deploy or explicitly migrate rounds because each round locks `policy_version`.
 
 ## Commands
 
 ```bash
-npm install
-npm run dev
-npm run build
+npm ci
 npm run typecheck
 npm run lint
+npm run build
 npm run contract:test
+npm audit --audit-level=high
 ```
 
-Operational scripts:
+Deployment:
 
 ```bash
 npm run deploy
 npm run verify:deployment
-npm run keeper
 ```
 
-## Environment
-
-Copy `.env.example` and set:
+Environment:
 
 ```bash
 NEXT_PUBLIC_MILA_CONTRACT_ADDRESS=
@@ -60,15 +120,40 @@ GENLAYER_RPC_URL=
 MILA_KEEPER_INTERVAL_MS=30000
 ```
 
-`GENLAYER_PRIVATE_KEY` is only needed for deployment. `NEXT_PUBLIC_MILA_CONTRACT_ADDRESS` enables contract reads in the frontend after deployment.
+## Verification Evidence
 
-## Verification Status
+Latest local run:
 
-Last local verification:
+```text
+npm run typecheck: passing
+npm run lint: passing
+npm run build: passing
+npm run contract:test: 6 passed
+npm audit --audit-level=high: 0 vulnerabilities
+genvm-lint fast lint: passing
+genvm-lint SDK validation: blocked locally by Windows cache permission / missing SDK cache
+```
 
-- `npm run build`: passing
-- `npm run typecheck`: passing
-- `npm run lint`: passing
-- `npm run contract:test`: passing
+Direct Mode tests passed:
 
-Remaining external step: deploy `contracts/mila.py` to GenLayer StudioNet with the project wallet, then set `NEXT_PUBLIC_MILA_CONTRACT_ADDRESS` and run `npm run verify:deployment`.
+```text
+test_seed_judgment_pass_awards_spark
+test_mutation_requires_accepted_parent
+test_featured_mutation_awards_parent_bonus_and_lineage
+test_duplicate_content_cooldown_reaction_and_badge_guards
+test_review_abstention_for_wrong_schema_and_prompt_injection
+test_validator_equivalence_tolerance
+```
+
+## Deployment Status
+
+Mila is not yet live on StudioNet from this workspace. No contract address or deployment transaction is claimed.
+
+External blocker: StudioNet deployment requires a configured GenLayer account/private key and working StudioNet RPC access. Once credentials are available, run:
+
+```bash
+npm run deploy
+npm run verify:deployment
+```
+
+The deploy script writes `deployments/studionet.json` with the contract address, deployment transaction, commit SHA, network, and timestamp.
