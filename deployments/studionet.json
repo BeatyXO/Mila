@@ -1,8 +1,8 @@
 {
   "network": "studionet",
   "rpc": "https://studio.genlayer.com/api",
-  "contractAddress": "0x7A4c0f2367252968B88db373A822B3a3141Ee230",
-  "deploymentTx": "0x35f6e7d07aa593b00c30c341b707432997b2de6fe682c416d054b16dfcff1f34",
-  "commit": "e371c3ce7f1f75236e778f1d52284e0abf033d80",
-  "deployedAt": "2026-08-24T13:36:58.741Z"
+  "contractAddress": "0xe4221b46D89955bbC531f537F4C9965F49bD7866",
+  "deploymentTx": "0xa0032c64bb16a35b842200438c4b2e8258c755962cd619fed0adda48290b6424",
+  "commit": "e9b5c6ee1b288b38d6910854c85e88b9ac1495e2",
+  "deployedAt": "2026-08-24T14:17:28.307Z"
 }

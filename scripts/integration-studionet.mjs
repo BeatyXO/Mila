@@ -35,6 +35,17 @@ function run(args) {
   });
 }
 
+function tryRun(args) {
+  try {
+    return { ok: true, output: run(args) };
+  } catch (error) {
+    return {
+      ok: false,
+      output: `${error.stdout?.toString() || ""}${error.stderr?.toString() || ""}${error.message || ""}`,
+    };
+  }
+}
+
 function quoteArg(value) {
   return `"${String(value).replaceAll('"', '\\"')}"`;
 }
@@ -109,6 +120,17 @@ function write(method, args) {
   return { hash, receipt, returned: extractReturnedString(`${output}\n${receipt}`) };
 }
 
+function expectWriteRejection(method, args, expectedText) {
+  const result = tryRun(["write", address, method, "--rpc", rpc, "--args", ...args.map(String)]);
+  if (result.output.toLowerCase().includes(expectedText.toLowerCase()) && /rollback|contract_error|execution_result:\s*'ERROR'|execution_result:\s*"ERROR"/i.test(result.output)) {
+    return result.output;
+  }
+  if (result.ok) {
+    throw new Error(`${method} unexpectedly succeeded; expected rejection containing ${expectedText}.\n${result.output}`);
+  }
+  throw new Error(`${method} rejected, but not with expected text ${expectedText}.\n${result.output}`);
+}
+
 function call(method, args = []) {
   const command = ["call", address, method, "--rpc", rpc];
   if (args.length) command.push("--args", ...args.map(String));
@@ -138,6 +160,7 @@ const openRound = write("open_round", [roundId]);
 const seed = write("submit_seed", [roundId, `Seed ${nonce}`, `A pause is still a plot twist ${nonce}.`]);
 const seedId = lastIdFromCall(call("get_round_feed", [roundId, 0, 10]));
 const seedJudgment = write("judge_entry", [seedId]);
+const duplicateRejection = expectWriteRejection("submit_seed", [roundId, `Duplicate ${nonce}`, `A pause is still a plot twist ${nonce}.`], "duplicate content");
 const seedEntry = call("get_entry", [seedId]);
 const seedDecision = call("get_judgment", [seedId]);
 const mutation = write("submit_mutation", [seedId, `Mutation ${nonce}`, `The typing dots became a standing meeting ${nonce}.`]);
@@ -161,6 +184,7 @@ ROUND ID: ${roundId}
 ROUND OPEN TX: ${openRound.hash}
 SEED SUBMIT TX: ${seed.hash}
 SEED ID: ${seedId}
+NEGATIVE DUPLICATE TEST: submit_seed rejected duplicate content before state mutation
 SEED JUDGMENT TX: ${seedJudgment.hash}
 MUTATION SUBMIT TX: ${mutation.hash}
 MUTATION ID: ${mutationId}
@@ -182,6 +206,12 @@ ${seedEntry}
 
 \`\`\`text
 ${seedDecision}
+\`\`\`
+
+## Negative Duplicate-Content Rejection
+
+\`\`\`text
+${duplicateRejection}
 \`\`\`
 
 ## Mutation Entry
