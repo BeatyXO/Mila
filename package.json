@@ -10,6 +10,7 @@
     "contract:test": "pytest tests -v",
     "deploy": "node scripts/deploy.mjs",
     "verify:deployment": "node scripts/verify-deployment.mjs",
+    "integration:studionet": "node scripts/integration-studionet.mjs",
     "keeper": "node scripts/keeper.mjs"
   },
   "dependencies": {

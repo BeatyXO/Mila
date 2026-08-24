@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { AppShell, ErrorState, JudgmentBreakdown } from "../../components/mila-ui";
+import { JudgeEntryButton } from "../../components/contract-actions";
 import { getChildren, getEntry } from "../../lib/mila";
 
 export default function EntryPage({ params }: { params: { id: string } }) {
@@ -11,7 +12,7 @@ export default function EntryPage({ params }: { params: { id: string } }) {
       <section className="round-section">
         <div className="section-intro">
           <div><p className="eyebrow">ENTRY</p><h2>{entry.title}</h2><p>{entry.text}</p></div>
-          <Link className="primary-button" href={`/entry/${entry.id}/mutate`}>Mutate entry</Link>
+          <div className="hero-cta"><Link className="primary-button" href={`/entry/${entry.id}/mutate`}>Mutate entry</Link><JudgeEntryButton entryId={entry.id} /></div>
         </div>
         <div className="round-grid two-col">
           <JudgmentBreakdown entry={entry} />

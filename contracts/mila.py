@@ -81,10 +81,14 @@ class Mila(gl.Contract):
     rounds: TreeMap[str, Round]
     entries: TreeMap[str, Entry]
     judgments: TreeMap[str, Decision]
-    round_feed: TreeMap[str, str]
-    children: TreeMap[str, str]
-    creator_history: TreeMap[Address, str]
+    round_entry_count: TreeMap[str, u256]
+    round_entries: TreeMap[str, str]
+    child_count: TreeMap[str, u256]
+    child_entries: TreeMap[str, str]
+    creator_entry_count: TreeMap[Address, u256]
+    creator_entries: TreeMap[str, str]
     creator_spark: TreeMap[Address, u256]
+    creator_spark_epoch: TreeMap[Address, u256]
     content_seen: TreeMap[str, bool]
     last_submit_at: TreeMap[Address, u256]
     reaction_counts: TreeMap[str, u256]
@@ -113,7 +117,7 @@ class Mila(gl.Contract):
 
         round_id = self._make_id("round", str(self.round_count), str(sender), theme, prompt)
         self.rounds[round_id] = Round(round_id, sender, theme.strip(), prompt.strip(), opens_at, closes_at, max_depth, seed_cap, mutation_cap, "DRAFT", POLICY_VERSION)
-        self.round_feed[round_id] = ""
+        self.round_entry_count[round_id] = u256(0)
         self.round_count += u256(1)
         return round_id
 
@@ -138,8 +142,8 @@ class Mila(gl.Contract):
     @gl.public.write
     def submit_seed(self, round_id: str, title: str, canonical_content: str) -> str:
         round_ = self._require_open_round(round_id)
-        self._require_cooldown(gl.message.sender_address)
         self._require_content(canonical_content, round_.seed_cap)
+        self._require_cooldown(gl.message.sender_address)
         content_hash = self._bind_content(canonical_content)
         entry_id = self._make_id("entry", str(self.entry_count), round_id, str(gl.message.sender_address), content_hash)
         entry = Entry(entry_id, round_id, gl.message.sender_address, title.strip(), canonical_content.strip(), content_hash, "", u256(0), "OPEN", self._now())
@@ -157,8 +161,8 @@ class Mila(gl.Contract):
             raise gl.vm.UserError("parent must be accepted or featured")
         if parent.depth >= round_.max_depth:
             raise gl.vm.UserError("lineage depth cap reached")
-        self._require_cooldown(gl.message.sender_address)
         self._require_content(canonical_content, round_.mutation_cap)
+        self._require_cooldown(gl.message.sender_address)
         content_hash = self._bind_content(canonical_content)
         entry_id = self._make_id("entry", str(self.entry_count), parent.round_id, parent_id, str(gl.message.sender_address), content_hash)
         entry = Entry(entry_id, parent.round_id, gl.message.sender_address, title.strip(), canonical_content.strip(), content_hash, parent_id, parent.depth + u256(1), "OPEN", self._now())
@@ -200,8 +204,14 @@ class Mila(gl.Contract):
             except Exception:
                 return False
 
-        raw_decision = gl.vm.run_nondet_unsafe(leader_fn, validator_fn)
-        decision = self._sanitize_decision(raw_decision, round_.policy_version)
+        try:
+            raw_decision = gl.vm.run_nondet_unsafe(leader_fn, validator_fn)
+            decision = self._sanitize_decision(raw_decision, round_.policy_version)
+            decision = self._enforce_decision_invariants(entry, decision)
+        except Exception:
+            entry.status = "OPEN"
+            self.entries[entry_id] = entry
+            raise
         self.judgments[entry_id] = decision
         self._settle(entry_id, decision)
 
@@ -232,6 +242,7 @@ class Mila(gl.Contract):
     @gl.public.write
     def claim_creator_badge(self) -> str:
         creator = gl.message.sender_address
+        self._normalize_spark(creator)
         if self.creator_spark.get(creator, u256(0)) < u256(10):
             raise gl.vm.UserError("badge requires 10 SPARK")
         key = self._badge_key(creator, self.epoch)
@@ -269,7 +280,7 @@ class Mila(gl.Contract):
 
     @gl.public.view
     def get_children(self, entry_id: str, offset: u256, limit: u256) -> typing.Any:
-        return self._slice_ids(self.children.get(entry_id, ""), offset, limit)
+        return self._slice_indexed("child", entry_id, self.child_count.get(entry_id, u256(0)), offset, limit)
 
     @gl.public.view
     def get_lineage(self, entry_id: str) -> typing.Any:
@@ -287,7 +298,7 @@ class Mila(gl.Contract):
 
     @gl.public.view
     def get_creator_spark(self, creator: Address) -> u256:
-        return self.creator_spark.get(creator, u256(0))
+        return self._decayed_spark(creator)
 
     @gl.public.view
     def get_round_spark_rules(self) -> typing.Any:
@@ -295,11 +306,11 @@ class Mila(gl.Contract):
 
     @gl.public.view
     def get_creator_history(self, creator: Address, offset: u256, limit: u256) -> typing.Any:
-        return self._slice_ids(self.creator_history.get(creator, ""), offset, limit)
+        return self._slice_indexed("creator", str(creator), self.creator_entry_count.get(creator, u256(0)), offset, limit)
 
     @gl.public.view
     def get_round_feed(self, round_id: str, offset: u256, limit: u256) -> typing.Any:
-        return self._slice_ids(self.round_feed.get(round_id, ""), offset, limit)
+        return self._slice_indexed("round", round_id, self.round_entry_count.get(round_id, u256(0)), offset, limit)
 
     @gl.public.view
     def get_reactions(self, entry_id: str) -> typing.Any:
@@ -410,6 +421,36 @@ Return JSON with exactly:
         novelty_delta = int(a.novelty_band) - int(b.novelty_band)
         return abs(humor_delta) <= 1 and abs(novelty_delta) <= 1
 
+    def _enforce_decision_invariants(self, entry: Entry, decision: Decision) -> Decision:
+        verdict = decision.verdict
+        if decision.theme_fit == "NONE" and (verdict == "FEATURE" or verdict == "PASS"):
+            verdict = "REJECT"
+        if decision.derivative_risk == "HIGH" and verdict == "FEATURE":
+            verdict = "FLAT"
+        if entry.parent_id == "" and decision.parent_consistency != "ROOT":
+            verdict = "REVIEW"
+        if entry.parent_id != "" and decision.parent_consistency == "ROOT":
+            verdict = "REVIEW"
+        if decision.safety_band != "GREEN" and verdict == "FEATURE":
+            verdict = "REVIEW"
+        if verdict == decision.verdict:
+            return decision
+        return Decision(
+            verdict,
+            decision.humor_band,
+            decision.novelty_band,
+            decision.theme_fit,
+            decision.transformation,
+            decision.derivative_risk,
+            decision.safety_band,
+            u256(self._reward_for(verdict)),
+            decision.parent_consistency,
+            decision.short_reason,
+            decision.schema_version,
+            decision.policy_version,
+            decision.evidence,
+        )
+
     def _settle(self, entry_id: str, decision: Decision) -> None:
         entry = self._entry(entry_id)
         if decision.verdict == "FEATURE":
@@ -434,7 +475,9 @@ Return JSON with exactly:
             self._award(parent.creator, u256(1))
 
     def _award(self, creator: Address, amount: u256) -> None:
+        self._normalize_spark(creator)
         self.creator_spark[creator] = self.creator_spark.get(creator, u256(0)) + amount
+        self.creator_spark_epoch[creator] = self.epoch
 
     def _round(self, round_id: str) -> Round:
         if round_id not in self.rounds:
@@ -482,30 +525,53 @@ Return JSON with exactly:
         return content_hash
 
     def _append_round_entry(self, round_id: str, entry_id: str) -> None:
-        self.round_feed[round_id] = self._append_id(self.round_feed.get(round_id, ""), entry_id)
+        index = self.round_entry_count.get(round_id, u256(0))
+        self.round_entries[self._index_key("round", round_id, index)] = entry_id
+        self.round_entry_count[round_id] = index + u256(1)
 
     def _append_creator_entry(self, creator: Address, entry_id: str) -> None:
-        self.creator_history[creator] = self._append_id(self.creator_history.get(creator, ""), entry_id)
+        index = self.creator_entry_count.get(creator, u256(0))
+        self.creator_entries[self._index_key("creator", str(creator), index)] = entry_id
+        self.creator_entry_count[creator] = index + u256(1)
 
     def _append_child(self, parent_id: str, entry_id: str) -> None:
-        self.children[parent_id] = self._append_id(self.children.get(parent_id, ""), entry_id)
+        index = self.child_count.get(parent_id, u256(0))
+        self.child_entries[self._index_key("child", parent_id, index)] = entry_id
+        self.child_count[parent_id] = index + u256(1)
 
-    def _append_id(self, current: str, entry_id: str) -> str:
-        if current == "":
-            return entry_id
-        return current + "|" + entry_id
-
-    def _slice_ids(self, encoded: str, offset: u256, limit: u256) -> typing.Any:
-        items = [] if encoded == "" else encoded.split("|")
+    def _slice_indexed(self, scope: str, owner: str, count: u256, offset: u256, limit: u256) -> typing.Any:
         capped = min(int(limit), MAX_PAGE_LIMIT)
         start = int(offset)
-        end = min(start + capped, len(items))
+        end = min(start + capped, int(count))
         out: list[str] = []
         i = start
         while i < end:
-            out.append(items[i])
+            key = self._index_key(scope, owner, u256(i))
+            if scope == "round":
+                out.append(self.round_entries.get(key, ""))
+            elif scope == "creator":
+                out.append(self.creator_entries.get(key, ""))
+            else:
+                out.append(self.child_entries.get(key, ""))
             i += 1
         return out
+
+    def _index_key(self, scope: str, owner: str, index: u256) -> str:
+        return scope + "::" + owner + "::" + str(index)
+
+    def _normalize_spark(self, creator: Address) -> None:
+        self.creator_spark[creator] = self._decayed_spark(creator)
+        self.creator_spark_epoch[creator] = self.epoch
+
+    def _decayed_spark(self, creator: Address) -> u256:
+        spark = self.creator_spark.get(creator, u256(0))
+        settled_epoch = self.creator_spark_epoch.get(creator, self.epoch)
+        elapsed = int(self.epoch - settled_epoch)
+        i = 0
+        while i < elapsed:
+            spark = u256(int(spark) * 95 // 100)
+            i += 1
+        return spark
 
     def _band(self, value: typing.Any) -> int:
         try:

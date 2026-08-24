@@ -1,7 +1,8 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
-import { AlertTriangle, ArrowUpRight, GitBranch, Loader2, ShieldCheck, Sparkles, Wallet } from "lucide-react";
+import { AlertTriangle, ArrowUpRight, GitBranch, Loader2, ShieldCheck, Sparkles } from "lucide-react";
 import { MilaEntry, MilaRound, Verdict, hasContractAddress, shortAddress } from "../lib/mila";
+import { WalletButton } from "./wallet-client";
 
 export function AppShell({ children }: { children: ReactNode }) {
   return (
@@ -21,6 +22,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           <WalletButton />
         </div>
       </header>
+      {!hasContractAddress() ? <div className="demo-banner">Mila Demo Mode - no StudioNet contract configured</div> : null}
       {children}
       <footer>
         <div className="brand">
@@ -35,15 +37,7 @@ export function AppShell({ children }: { children: ReactNode }) {
 }
 
 export function NetworkGuard() {
-  return <span className="chain-badge">{hasContractAddress() ? "StudioNet ready" : "Local preview"}</span>;
-}
-
-export function WalletButton() {
-  return (
-    <button className="wallet-button" type="button">
-      <Wallet size={16} /> Connect wallet
-    </button>
-  );
+  return <span className="chain-badge">{hasContractAddress() ? "StudioNet mode" : "Demo mode"}</span>;
 }
 
 export function TxStatusDrawer() {

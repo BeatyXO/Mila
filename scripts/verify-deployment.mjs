@@ -6,11 +6,12 @@ import { fileURLToPath } from "node:url";
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const deploymentPath = resolve(root, "deployments", "studionet.json");
 const rpc = process.env.GENLAYER_RPC_URL || "https://studio.genlayer.com/api";
-const address = process.env.NEXT_PUBLIC_MILA_CONTRACT_ADDRESS || readDeploymentAddress();
+const deployment = readDeployment();
+const address = process.env.NEXT_PUBLIC_MILA_CONTRACT_ADDRESS || deployment.contractAddress || "";
 
-function readDeploymentAddress() {
-  if (!existsSync(deploymentPath)) return "";
-  return JSON.parse(readFileSync(deploymentPath, "utf8")).contractAddress || "";
+function readDeployment() {
+  if (!existsSync(deploymentPath)) return {};
+  return JSON.parse(readFileSync(deploymentPath, "utf8"));
 }
 
 function run(args) {
@@ -33,7 +34,15 @@ if (!address) {
 }
 
 const summary = run(["call", address, "get_summary", "--rpc", rpc]);
-assertIncludes("get_summary", summary, "mila.policy.v1");
-assertIncludes("get_summary", summary, "mila.decision.v1");
+for (const expected of ["mila.policy.v1", "mila.decision.v1", "admin", "epoch", "round_count", "entry_count", "badge_count"]) {
+  assertIncludes("get_summary", summary, expected);
+}
 
-console.log(JSON.stringify({ network: "studionet", rpc, contractAddress: address, summaryVerified: true }, null, 2));
+if (existsSync(deploymentPath)) {
+  for (const key of ["network", "contractAddress", "deploymentTx", "commit", "deployedAt"]) {
+    if (!deployment[key]) throw new Error(`deployments/studionet.json is missing ${key}`);
+  }
+  if (deployment.network !== "studionet") throw new Error(`Unexpected deployment network: ${deployment.network}`);
+}
+
+console.log(JSON.stringify({ network: "studionet", rpc, contractAddress: address, summaryVerified: true, metadataVerified: existsSync(deploymentPath) }, null, 2));

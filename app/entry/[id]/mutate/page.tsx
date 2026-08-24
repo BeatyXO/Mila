@@ -1,15 +1,13 @@
 import { AppShell } from "../../../components/mila-ui";
+import { SubmitMutationForm } from "../../../components/contract-actions";
 
-export default function MutatePage() {
+export default function MutatePage({ params }: { params: { id: string } }) {
   return (
     <AppShell>
       <section className="form-page">
         <p className="eyebrow">SUBMIT MUTATION</p>
         <h1>Transform the parent.</h1>
-        <label>Mutation title<input placeholder="The next beat" /></label>
-        <label>Mutation text<textarea placeholder="The twist, callback, or remix" /></label>
-        <label>Parent fit note<textarea placeholder="Why this meaningfully transforms its parent" /></label>
-        <button className="primary-button">Connect wallet to request judgment</button>
+        <SubmitMutationForm parentId={params.id} />
       </section>
     </AppShell>
   );
