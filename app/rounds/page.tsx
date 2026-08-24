@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { AppShell, CultureDial, EmptyState, LineageWeb } from "../components/mila-ui";
+import { OpenRoundByIdForm } from "../components/contract-actions";
 import { isStudioNetMode } from "../lib/genlayer";
 import { previewEntries, previewRound } from "../lib/mila";
 import { milaReads } from "../lib/mila-contract";
@@ -22,7 +23,8 @@ export default async function RoundsPage() {
               <span><b>{summary.badge_count}</b> badges</span>
             </div>
           </div>
-          <EmptyState title="StudioNet mode does not show preview rounds. Use /rounds/{roundId} for a live round." />
+          <OpenRoundByIdForm />
+          <EmptyState title="Create a new round or paste a returned round ID to open an existing live round." />
           <Link className="primary-button route-action" href="/rounds/new">Create live round</Link>
         </section>
       </AppShell>

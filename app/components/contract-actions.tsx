@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useState } from "react";
+import { useRouter } from "next/navigation";
 import { extractReturnedString, milaWrites, waitForMilaTx } from "../lib/genlayer";
 import { useMilaWallet } from "./wallet-client";
 
@@ -27,6 +28,7 @@ function toEpochSeconds(value: FormDataEntryValue | null) {
 
 export function CreateRoundForm() {
   const { wallet, connect } = useMilaWallet();
+  const router = useRouter();
   const [tx, setTx] = useState<TxState>({ label: "Awaiting wallet" });
 
   async function submit(event: FormEvent<HTMLFormElement>) {
@@ -49,6 +51,7 @@ export function CreateRoundForm() {
       const receipt = await waitForMilaTx(hash);
       const roundId = extractReturnedString(receipt);
       setTx({ label: roundId ? `Accepted / round ${roundId}` : "Accepted", hash });
+      if (roundId) router.push(`/rounds/${roundId}`);
     } catch (error) {
       setTx({ label: "Failed", error: error instanceof Error ? error.message : "Transaction failed." });
     }
@@ -65,6 +68,28 @@ export function CreateRoundForm() {
       <label>Mutation cap<input name="mutation_cap" type="number" min={12} max={1000} defaultValue={240} /></label>
       <button className="primary-button" type="submit">Create round</button>
       <TxPanel state={tx} />
+    </form>
+  );
+}
+
+export function OpenRoundByIdForm() {
+  const [roundId, setRoundId] = useState("");
+  const router = useRouter();
+
+  function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const normalized = roundId.trim();
+    if (!normalized) return;
+    router.push(`/rounds/${encodeURIComponent(normalized)}`);
+  }
+
+  return (
+    <form className="inline-route-form" onSubmit={submit}>
+      <label>
+        Open round by ID
+        <input value={roundId} onChange={(event) => setRoundId(event.target.value)} placeholder="7509db097a5cfd16b7e00cce" />
+      </label>
+      <button className="primary-button" type="submit">Open round</button>
     </form>
   );
 }
