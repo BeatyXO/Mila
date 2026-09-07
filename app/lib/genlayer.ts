@@ -27,7 +27,14 @@ export function createMilaWriteClient(account: `0x${string}`, provider?: Provide
 }
 
 export async function waitForMilaTx(hash: TxHash, status = TransactionStatus.ACCEPTED) {
-  const receipt = await milaReadClient.waitForTransactionReceipt({ hash, status });
+  // StudioNet receipts can contain consensus fields that the SDK's default
+  // simplified-receipt decoder does not handle. Keep the raw transaction so
+  // callers can inspect the return value without triggering that decoder.
+  const receipt = await milaReadClient.waitForTransactionReceipt({
+    hash,
+    status,
+    fullTransaction: true,
+  } as Parameters<typeof milaReadClient.waitForTransactionReceipt>[0]);
   return receipt;
 }
 

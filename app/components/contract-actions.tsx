@@ -21,9 +21,15 @@ function TxPanel({ state }: { state: TxState }) {
   );
 }
 
-function toEpochSeconds(value: FormDataEntryValue | null) {
-  const date = typeof value === "string" ? new Date(value) : new Date();
-  return BigInt(Math.floor(date.getTime() / 1000));
+function toEpochSeconds(value: FormDataEntryValue | null, fieldName: string) {
+  if (typeof value !== "string" || !value.trim()) {
+    throw new Error(`${fieldName} is required.`);
+  }
+  const milliseconds = new Date(value).getTime();
+  if (!Number.isFinite(milliseconds)) {
+    throw new Error(`${fieldName} must be a valid date.`);
+  }
+  return BigInt(Math.floor(milliseconds / 1000));
 }
 
 export function CreateRoundForm() {
@@ -41,8 +47,8 @@ export function CreateRoundForm() {
       const hash = await milaWrites.createRound(active.address, active.provider, [
         String(data.get("theme") || ""),
         String(data.get("prompt") || ""),
-        toEpochSeconds(data.get("opens_at")),
-        toEpochSeconds(data.get("closes_at")),
+        toEpochSeconds(data.get("opens_at"), "Opening date"),
+        toEpochSeconds(data.get("closes_at"), "Closing date"),
         BigInt(String(data.get("max_depth") || "4")),
         BigInt(String(data.get("seed_cap") || "140")),
         BigInt(String(data.get("mutation_cap") || "240")),
